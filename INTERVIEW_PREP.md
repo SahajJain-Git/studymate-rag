@@ -67,5 +67,50 @@ This guide is designed to help you confidently explain the architecture, design 
 
 ---
 
+## 💡 Stage 2 Document Ingestion & PDF Processing Questions & Answers
+
+### 6. Why can't we trust MIME types or file extensions alone for PDF validation?
+**Interviewer:** *"Why did you check magic bytes instead of just inspecting `file.getContentType()` or checking if the filename ends with `.pdf`?"*
+
+**Answer:**
+> *"Both filename and MIME type are completely client-controlled and easily forged:*
+> 1. *A client or attacker can rename an executable, script, or plain text file to `notes.pdf` and set the HTTP `Content-Type: application/pdf` header.*
+> 2. *Passing disguised files to a PDF parser can cause memory exhaustion, buffer issues, or unexpected parser crashes.*
+> 3. *True content inspection requires validating the file's **magic byte header**. Every compliant PDF begins with the 5-byte sequence `%PDF-` (`0x25, 0x50, 0x44, 0x46, 0x2D`). In `PdfService`, we inspect the initial bytes directly from the binary stream before invoking PDFBox, guaranteeing defense-in-depth."*
+
+---
+
+### 7. What is new in Apache PDFBox 3.0 compared to PDFBox 2.0 regarding resource management?
+**Interviewer:** *"How did you load the PDF document using PDFBox, and what memory considerations did you account for?"*
+
+**Answer:**
+> *"In Apache PDFBox 3.0.x, the legacy static method `PDDocument.load(...)` was deprecated and replaced with `Loader.loadPDF(...)`:*
+> - *We wrap `Loader.loadPDF(fileBytes)` inside a Java **`try-with-resources`** block. `PDDocument` implements `AutoCloseable`, ensuring that native off-heap memory, scratch buffers, and internal font caches are deterministically freed when parsing finishes or if an exception is thrown.*
+> - *We avoid saving uploaded files to permanent disk storage, processing the stream in memory to prevent lingering temporary files, disk exhaustion, or concurrent I/O bottlenecks."*
+
+---
+
+### 8. Why is it essential to preserve page numbers in a RAG ingestion pipeline?
+**Interviewer:** *"Why didn't you just concatenate all pages into one large `String` during PDF extraction?"*
+
+**Answer:**
+> *"Preserving page numbers (`ExtractedPage(pageNumber, text)`) is vital for trustworthy, enterprise-grade RAG systems:*
+> 1. **Explainability & Grounding:** *When an LLM answers a student's question, it must provide verifiable citations (e.g., 'See Chapter 2, Page 4'). Without tracking source page numbers during extraction and chunking, attributing answers back to specific textbook pages becomes impossible.*
+> 2. **Evaluation & Verification:** *In automated RAG evaluation (e.g. Ragas framework), we test Context Relevance and Groundedness. Having exact page metadata allows automated evaluation metrics to assert whether the retrieved chunk originated from the correct textbook section."*
+
+---
+
+### 9. How do Thin Controllers and `@RestControllerAdvice` work together?
+**Interviewer:** *"What is the architectural benefit of using `@RestControllerAdvice` instead of `try/catch` blocks inside your controller methods?"*
+
+**Answer:**
+> *"Using `@RestControllerAdvice` adheres to the Single Responsibility Principle and the Thin Controller pattern:*
+> - **Separation of Concerns:** *Controllers focus purely on HTTP routing, request deserialization, and HTTP response mapping. Business exceptions (`InvalidFileException`, `EmptyPdfException`, `PdfProcessingException`) bubble up naturally.*
+> - **Centralized Error Policy:** *The advice acts as an interceptor across all controllers. If we decide to adjust our error payload schema or HTTP status mappings, we update a single method in `GlobalExceptionHandler` rather than dozens of controller endpoints.*
+> - **Consistent Client Contract:** *The client is guaranteed a uniform JSON schema (`ErrorResponse`) with standard timestamp, status, error, and message attributes for every 4xx and 5xx condition."*
+
+---
+
 *(This document will expand after each stage to cover chunking trade-offs, vector similarity metrics, prompt injection mitigation, and RAG evaluation).*
+
 
