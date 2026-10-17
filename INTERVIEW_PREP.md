@@ -212,7 +212,66 @@ This guide is designed to help you confidently explain the architecture, design 
 
 ---
 
-*(This document will expand after each stage to cover prompt templates, LLM integration, and RAG evaluation).*
+## 💡 Stage 5 RAG Question Answering Questions & Answers
+
+### 19. How do you prevent hallucinations in a RAG system?
+**Interviewer:** *"What architectural and prompt engineering safeguards do you use to stop the LLM from inventing fake facts or citing false information?"*
+
+**Answer:**
+> *"Hallucination mitigation requires a multi-layered defense:*
+> 1. **Prompt Guardrails & Persona Constraint:** *Our `SystemMessage` explicitly restricts the LLM to facts directly stated in the context passages. It strictly forbids extrapolation, speculation, or using outside training data.*
+> 2. **Authoritative Negative Directive:** *The prompt explicitly mandates: 'If the Context Passages do not contain sufficient evidence to answer the question, state: \"The provided document does not contain sufficient information to answer this question.\" '*
+> 3. **Nonempty Context Caveat:** *The prompt explicitly warns the model that the mere presence of retrieved chunks does not guarantee they contain the necessary evidence.*
+> 4. **Retrieval Short-Circuiting:** *If vector search returns 0 chunks (or nothing meets the similarity threshold), we bypass the LLM entirely and return an honest negative answer in Java, guaranteeing zero hallucinations."*
+
+---
+
+### 20. Why build citations in Java from retrieved chunks rather than asking the LLM to output citations?
+**Interviewer:** *"Why didn't you just ask the LLM in the prompt to tell you which page number and chunk ID it used?"*
+
+**Answer:**
+> *"Because LLMs are probabilistic token predictors, not authoritative databases:*
+> - *If you ask an LLM to generate page numbers, chunk IDs, or filenames, it will frequently hallucinate plausible-sounding but completely incorrect page numbers or non-existent chunk IDs.*
+> - *In StudyMate, **we generate citations authoritatively in Java** directly from the metadata attached to the actual `SearchResultItem` objects returned by `VectorStoreService`.*
+> - *This guarantees 100% citation integrity: every citation in `QuestionResponse` corresponds to a genuine physical page in the uploaded PDF with real similarity scores and text excerpts."*
+
+---
+
+### 21. What is the Insufficient Evidence problem, and how do you handle it?
+**Interviewer:** *"What happens when a student asks a question that cannot be answered by the uploaded PDF?"*
+
+**Answer:**
+> *"There are two distinct scenarios:*
+> 1. **Zero-Chunk Retrieval:** *The query has zero similarity to the indexed document (e.g. asking about Quantum Physics against a Cooking recipe book). `RagService` detects that `retrievedChunks.isEmpty()` and immediately returns `hasSufficientContext = false` without making an expensive or slow LLM call.*
+> 2. **Partial / Low-Relevance Retrieval:** *Chunks are retrieved because words overlap, but the text doesn't actually answer the specific question. The LLM is instructed by our system prompt to acknowledge the absence of sufficient evidence. `RagService.evaluateContextSufficiency()` inspects the answer and sets `hasSufficientContext = false` so downstream UI components can warn the student.*"
+
+---
+
+### 22. How do you structure a production-grade RAG prompt?
+**Interviewer:** *"Walk me through the components of your RAG prompt template."*
+
+**Answer:**
+> *"In Spring AI, we structure prompts using discrete message abstractions rather than raw concatenated strings:*
+> - **`SystemMessage` (The Guardrail):** *Defines StudyMate's persona, strict factual constraints, the negative directive for missing context, and bracketed page citation rules (`[Page X]`).*
+> - **Context Block:** *Clear delimited boundary (`--- Context Passages ---`) containing structured blocks with page numbers, source filename, and chunk text.*
+> - **`UserMessage` (The Input):** *Contains the context blocks followed by the clear student question (`Student Question: {question}`).*
+> - *Using distinct system and user roles helps modern instruction-tuned LLMs distinguish between administrative instructions and untrusted student inputs, reducing prompt injection risks."*
+
+---
+
+### 23. Why implement a deterministic local `ChatModel` baseline instead of relying solely on remote APIs?
+**Interviewer:** *"Why did you create `DeterministicLocalChatModel` when OpenAI and Anthropic already provide chat models?"*
+
+**Answer:**
+> *"In professional enterprise engineering, test-driven reliability is paramount:*
+> 1. **Offline & CI/CD Determinism:** *Automated builds (`mvnw clean test`) should never fail because an external API had a network hiccup, rate limit, or required a paid credit card in CI/CD pipelines.*
+> 2. **Zero-Credential Local Onboarding:** *A new developer or student can clone the repo and immediately run, test, and debug the entire RAG pipeline offline.*
+> 3. **Pluggable Interface:** *Because `DeterministicLocalChatModel` implements Spring AI's standardized `ChatModel` interface, swapping it for `OpenAiChatModel` or `OllamaChatModel` in production requires zero changes to `RagService` or `QueryController`—it is purely a configuration choice."*
+
+---
+
+*(This document will expand after each stage to cover frontend design, end-to-end evaluation, and deployment).*
+
 
 
 

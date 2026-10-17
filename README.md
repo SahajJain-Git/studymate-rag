@@ -74,8 +74,8 @@ StudyMate executes two primary data workflows:
 | **Stage 2** | **PDF Upload & Text Extraction** | **Completed** | Multipart upload, Apache PDFBox 3 integration, magic byte validation, page-level text extraction. |
 | **Stage 3** | **Text Chunking Strategy** | **Completed** | Sliding window algorithm, configurable overlap, InMemoryDocumentStore, chunk inspection endpoint. |
 | **Stage 4** | **Embeddings & Vector Storage** | **Completed** | Spring AI SimpleVectorStore, deterministic local embedding baseline, top-k similarity search, stale chunk eviction. |
-| **Stage 5** | **RAG Question Answering** | *Next* | Augmented prompt templating, LLM interaction, hallucination mitigation. |
-| **Stage 6** | **Simple Frontend** | *Upcoming* | Clean UI (drag-and-drop PDF upload, question console, source citation drawer). |
+| **Stage 5** | **RAG Question Answering** | **Completed** | Prompt templating, RagService, QueryController, grounded answer synthesis, authoritative Java citations, insufficient-context guardrails. |
+| **Stage 6** | **Simple Frontend** | *Next* | Clean UI (drag-and-drop PDF upload, question console, source citation drawer). |
 | **Stage 7** | **Testing & Integration** | *Upcoming* | End-to-end integration tests, error handling, mock vs live API testing. |
 | **Stage 8** | **Interview Preparation Guide** | *Upcoming* | Deep architectural Q&A, trade-off analysis, resume-ready bullet points. |
 
@@ -280,6 +280,58 @@ curl -X POST http://localhost:8080/api/documents/index
   ]
 }
 ```
+
+### 6. RAG Question Answering (Stage 5)
+- **Endpoint:** `POST /api/query`
+- **Content-Type:** `application/json`
+- **Description:** Takes a student's natural-language question, retrieves the most relevant chunks from the indexed document via `VectorStoreService`, formats an augmented prompt with strict grounding rules, queries the `ChatModel`, and returns an authoritative answer with page citations.
+
+#### cURL Example:
+```bash
+curl -X POST http://localhost:8080/api/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "What is encapsulation in object-oriented programming?",
+    "topK": 2,
+    "minThreshold": 0.0
+  }'
+```
+
+#### Success Response (`200 OK`):
+```json
+{
+  "question": "What is encapsulation in object-oriented programming?",
+  "answer": "Based on [Page 1], Principles of Object-Oriented Programming. Encapsulation hides internal object state.",
+  "citations": [
+    {
+      "pageNumber": 1,
+      "sourceFilename": "oop-study-guide.pdf",
+      "chunkId": "doc-7f1a3b8c-oop-study-guide_pdf-p1-c0",
+      "score": 0.8523,
+      "textPreview": "Principles of Object-Oriented Programming. Encapsulation hides internal object state..."
+    }
+  ],
+  "documentId": "doc-7f1a3b8c",
+  "hasSufficientContext": true
+}
+```
+
+#### Insufficient Context Response (`200 OK`):
+When the uploaded document does not contain relevant information for the question (e.g. asking about Quantum Physics against a Cooking recipe PDF):
+```json
+{
+  "question": "What is quantum entanglement?",
+  "answer": "The uploaded study document does not contain relevant information to answer this question.",
+  "citations": [],
+  "documentId": "doc-7f1a3b8c",
+  "hasSufficientContext": false
+}
+```
+
+#### Error Responses:
+- **`400 Bad Request`**: Blank or missing question string.
+- **`404 Not Found`**: No document has been indexed yet.
+
 
 
 
