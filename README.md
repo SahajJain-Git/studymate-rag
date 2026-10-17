@@ -72,8 +72,8 @@ StudyMate executes two primary data workflows:
 |---|---|---|---|
 | **Stage 1** | **Spring Boot Foundation** | **Completed** | Maven setup, application configuration, diagnostic health endpoint, initial tests. |
 | **Stage 2** | **PDF Upload & Text Extraction** | **Completed** | Multipart upload, Apache PDFBox 3 integration, magic byte validation, page-level text extraction. |
-| **Stage 3** | **Text Chunking Strategy** | *Next* | Configurable token/character windowing with sliding overlap. |
-| **Stage 4** | **Embeddings & Vector Storage** | *Upcoming* | Spring AI VectorStore integration, embedding generation, top-k similarity search. |
+| **Stage 3** | **Text Chunking Strategy** | **Completed** | Sliding window algorithm, configurable overlap, InMemoryDocumentStore, chunk inspection endpoint. |
+| **Stage 4** | **Embeddings & Vector Storage** | *Next* | Spring AI VectorStore integration, embedding generation, top-k similarity search. |
 | **Stage 5** | **RAG Question Answering** | *Upcoming* | Augmented prompt templating, LLM interaction, hallucination mitigation. |
 | **Stage 6** | **Simple Frontend** | *Upcoming* | Clean UI (drag-and-drop PDF upload, question console, source citation drawer). |
 | **Stage 7** | **Testing & Integration** | *Upcoming* | End-to-end integration tests, error handling, mock vs live API testing. |
@@ -168,4 +168,55 @@ curl -X POST http://localhost:8080/api/documents/upload \
     "path": "/api/documents/upload"
   }
   ```
+
+### 3. Chunk Inspection Endpoint (Stage 3)
+- **Endpoint:** `GET /api/documents/chunks`
+- **Description:** Returns the text chunks, window metrics, and page citations generated from the active document held in `InMemoryDocumentStore`.
+
+#### cURL Example:
+```bash
+curl -X GET http://localhost:8080/api/documents/chunks
+```
+
+#### Success Response (`200 OK`):
+```json
+{
+  "filename": "lecture-notes.pdf",
+  "totalPages": 2,
+  "totalChunks": 4,
+  "chunkSize": 500,
+  "overlap": 50,
+  "chunks": [
+    {
+      "chunkId": "lecture-notes.pdf-p1-c0",
+      "text": "Chapter 1: Principles of Object-Oriented Programming...",
+      "pageNumber": 1,
+      "chunkIndex": 0,
+      "sourceFilename": "lecture-notes.pdf",
+      "characterCount": 500
+    },
+    {
+      "chunkId": "lecture-notes.pdf-p1-c1",
+      "text": "...Programming language paradigms and encapsulation...",
+      "pageNumber": 1,
+      "chunkIndex": 1,
+      "sourceFilename": "lecture-notes.pdf",
+      "characterCount": 370
+    }
+  ],
+  "message": "Generated 4 chunks from 2 pages with chunk-size=500 and overlap=50."
+}
+```
+
+#### No Document Uploaded Response (`404 Not Found`):
+```json
+{
+  "timestamp": "2026-10-17T16:20:00.000Z",
+  "status": 404,
+  "error": "Not Found",
+  "message": "No document has been uploaded yet. Please upload a PDF first via POST /api/documents/upload",
+  "path": "/api/documents/chunks"
+}
+```
+
 

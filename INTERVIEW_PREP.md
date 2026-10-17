@@ -111,6 +111,53 @@ This guide is designed to help you confidently explain the architecture, design 
 
 ---
 
-*(This document will expand after each stage to cover chunking trade-offs, vector similarity metrics, prompt injection mitigation, and RAG evaluation).*
+## 💡 Stage 3 Text Chunking & Memory Retention Questions & Answers
+
+### 10. What is chunking in RAG, and what are the trade-offs of chunk size?
+**Interviewer:** *"Why can't we just embed the entire document or entire pages as a single unit? How do you choose chunk size?"*
+
+**Answer:**
+> *"Chunking is the process of partitioning large continuous text into smaller, semantically coherent segments suitable for vector search and LLM context windows:*
+> - **If chunks are too large (Over-chunking):** *The embedding vector becomes diluted because it attempts to represent dozens of distinct topics in one dense numerical vector. During retrieval, cosine similarity drops, and you feed irrelevant noise to the LLM, increasing token costs and latency.*
+> - **If chunks are too small (Under-chunking):** *The chunk lacks sufficient context to be meaningful (e.g., retrieving half a sentence without knowing the subject or condition).*
+> - **Our Choice (500 chars with 50-char overlap):** *For study materials, ~500 characters (~100–125 tokens) captures a distinct paragraph or concept clearly, while 50 characters of overlap prevents concept fragmentation across boundaries."*
+
+---
+
+### 11. How does the sliding window chunking algorithm work mathematically?
+**Interviewer:** *"Walk me through your sliding window algorithm and how overlap is maintained."*
+
+**Answer:**
+> *"Given window size $W$ (`chunkSize = 500`) and overlap $O$ (`overlap = 50`):*
+> 1. *We define the step size $S = W - O = 500 - 50 = 450$ characters.*
+> 2. *Chunk 0 covers indices $[0, 500]$.*
+> 3. *The window advances by $S = 450$. Chunk 1 covers $[450, 950]$. The sub-sequence $[450, 500]$ appears in both Chunk 0 and Chunk 1.*
+> 4. *Chunk 2 advances to $[900, 1000]$. The sub-sequence $[900, 950]$ appears in both Chunk 1 and Chunk 2.*
+> 5. *We enforce strict validation: $W > 0$, $O \ge 0$, and $O < W$ to guarantee step size $S \ge 1$, which mathematically prevents infinite loops."*
+
+---
+
+### 12. Why did you use `AtomicReference` in `InMemoryDocumentStore` instead of a plain field or `synchronized` block?
+**Interviewer:** *"How do you handle thread safety in `InMemoryDocumentStore`?"*
+
+**Answer:**
+> *"In Spring Boot, controllers and services are singletons managed by the IoC container. Incoming HTTP requests are handled concurrently by different worker threads from Tomcat's thread pool:*
+> - *A plain non-volatile field (`private ExtractedDocument currentDocument`) suffers from memory visibility issues across threads: one thread uploading a document might not be immediately visible to another thread requesting chunks due to CPU cache coherency.*
+> - *Using `AtomicReference<ExtractedDocument>` provides lock-free, atomic reads and writes (`get()`, `set()`, `getAndSet()`) based on low-level CPU compare-and-swap (CAS) primitives. It guarantees immediate visibility without the overhead or thread contention of explicit `synchronized` blocks."*
+
+---
+
+### 13. Why do chunks not cross physical page boundaries in your design?
+**Interviewer:** *"Why do you chunk page-by-page rather than concatenating the whole document and chunking across pages?"*
+
+**Answer:**
+> *"By bounding the sliding window within each page:*
+> 1. **Unambiguous Attribution:** *Every `TextChunk` has an exact, single `pageNumber` (e.g. `page 3`). If chunks crossed page boundaries (e.g. 200 characters from page 2 and 300 characters from page 3), citing the source in an LLM answer would become ambiguous and harder for a student to verify.*
+> 2. **Structural Coherence:** *Page breaks in textbooks and lecture notes frequently align with topic headings, tables, or concept boundaries. Resetting the chunk window at page boundaries respects natural document layout."*
+
+---
+
+*(This document will expand after each stage to cover vector similarity metrics, prompt injection mitigation, and RAG evaluation).*
+
 
 

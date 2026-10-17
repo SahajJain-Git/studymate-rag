@@ -1,6 +1,8 @@
 package com.studymate.controller;
 
+import com.studymate.service.InMemoryDocumentStore;
 import com.studymate.util.PdfTestUtils;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,18 +15,20 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasSize;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Integration tests for DocumentController and GlobalExceptionHandler.
+ * Integration tests for DocumentController, ChunkingService, InMemoryDocumentStore, and GlobalExceptionHandler.
  *
  * Concepts for Beginners:
- * - MockMvc: Simulates HTTP multipart requests against the DispatcherServlet.
- * - End-to-End MVC Slice: Verifies that routing, multipart resolving, exception handling,
- *   and JSON serialization work together in the Spring ApplicationContext.
+ * - MockMvc: Simulates HTTP requests against the full Spring ApplicationContext without real network sockets.
+ * - Test Isolation: The @BeforeEach method clears the InMemoryDocumentStore before every test,
+ *   preventing tests from polluting each other's state.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -33,8 +37,17 @@ class DocumentControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private InMemoryDocumentStore documentStore;
+
+    @BeforeEach
+    void setUp() {
+        // Guarantee clean state for each test
+        documentStore.clear();
+    }
+
     @Test
-    @DisplayName("POST /api/documents/upload with valid PDF returns 200 OK and extraction metadata")
+    @DisplayName("POST /api/documents/upload with valid PDF returns 200 OK and stores document")
     void upload_validPdf_returns200AndUploadResponse() throws Exception {
         byte[] pdfBytes = PdfTestUtils.createMultiPagePdf(List.of(
                 "Chapter 1: Principles of Clean Architecture and Domain Modeling.",
@@ -61,7 +74,88 @@ class DocumentControllerTest {
                 .andExpect(jsonPath("$.pages[0].pageNumber").value(1))
                 .andExpect(jsonPath("$.pages[0].preview").isNotEmpty())
                 .andExpect(jsonPath("$.pages[1].pageNumber").value(2))
-                .andExpect(jsonPath("$.message").isNotEmpty());
+                .andExpect(jsonPath("$.message").value(containsString("stored 2 pages")));
+    }
+
+    @Test
+    @DisplayName("GET /api/documents/chunks returns 404 when no document has been uploaded yet")
+    void getChunks_whenNoDocumentUploaded_returns404() throws Exception {
+        mockMvc.perform(get("/api/documents/chunks")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value(containsString("No document has been uploaded yet")))
+                .andExpect(jsonPath("$.path").value("/api/documents/chunks"));
+    }
+
+    @Test
+    @DisplayName("GET /api/documents/chunks returns 200 OK and generated chunks after upload")
+    void getChunks_afterUpload_returns200AndChunkList() throws Exception {
+        byte[] pdfBytes = PdfTestUtils.createMultiPagePdf(List.of(
+                "Page 1: Introduction to Spring AI and Vector Embeddings.",
+                "Page 2: Retrieval-Augmented Generation Architecture and Prompt Engineering."
+        ));
+
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "ai-study-guide.pdf",
+                "application/pdf",
+                pdfBytes
+        );
+
+        // 1. Upload document
+        mockMvc.perform(multipart("/api/documents/upload")
+                        .file(file))
+                .andExpect(status().isOk());
+
+        // 2. Query chunks endpoint
+        mockMvc.perform(get("/api/documents/chunks")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.filename").value("ai-study-guide.pdf"))
+                .andExpect(jsonPath("$.totalPages").value(2))
+                .andExpect(jsonPath("$.totalChunks").value(2))
+                .andExpect(jsonPath("$.chunkSize").value(500))
+                .andExpect(jsonPath("$.overlap").value(50))
+                .andExpect(jsonPath("$.chunks").isArray())
+                .andExpect(jsonPath("$.chunks", hasSize(2)))
+                .andExpect(jsonPath("$.chunks[0].chunkId").value("ai-study-guide.pdf-p1-c0"))
+                .andExpect(jsonPath("$.chunks[0].pageNumber").value(1))
+                .andExpect(jsonPath("$.chunks[0].chunkIndex").value(0))
+                .andExpect(jsonPath("$.chunks[0].text").value(containsString("Introduction to Spring AI")))
+                .andExpect(jsonPath("$.chunks[1].chunkId").value("ai-study-guide.pdf-p2-c1"))
+                .andExpect(jsonPath("$.chunks[1].pageNumber").value(2))
+                .andExpect(jsonPath("$.chunks[1].chunkIndex").value(1))
+                .andExpect(jsonPath("$.chunks[1].text").value(containsString("Retrieval-Augmented Generation")));
+    }
+
+    @Test
+    @DisplayName("Uploading a new document replaces previous document in InMemoryDocumentStore")
+    void upload_replacesPreviousDocument() throws Exception {
+        byte[] pdf1 = PdfTestUtils.createSinglePagePdf("Document One text content.");
+        byte[] pdf2 = PdfTestUtils.createSinglePagePdf("Document Two text content.");
+
+        // Upload first document
+        mockMvc.perform(multipart("/api/documents/upload")
+                        .file(new MockMultipartFile("file", "doc-one.pdf", "application/pdf", pdf1)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/documents/chunks"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.filename").value("doc-one.pdf"));
+
+        // Upload second document -> should replace first
+        mockMvc.perform(multipart("/api/documents/upload")
+                        .file(new MockMultipartFile("file", "doc-two.pdf", "application/pdf", pdf2)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/documents/chunks"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.filename").value("doc-two.pdf"))
+                .andExpect(jsonPath("$.chunks[0].text").value("Document Two text content."));
     }
 
     @Test

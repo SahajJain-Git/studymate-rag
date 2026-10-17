@@ -3,6 +3,7 @@ package com.studymate.controller;
 import com.studymate.dto.ErrorResponse;
 import com.studymate.exception.EmptyPdfException;
 import com.studymate.exception.InvalidFileException;
+import com.studymate.exception.NoDocumentUploadedException;
 import com.studymate.exception.PdfProcessingException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -33,6 +34,18 @@ public class GlobalExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     /**
+     * Handles requests for document chunks or queries when no document has been uploaded yet.
+     * HTTP 404 Not Found
+     */
+    @ExceptionHandler(NoDocumentUploadedException.class)
+    public ResponseEntity<ErrorResponse> handleNoDocumentUploaded(
+            NoDocumentUploadedException ex, HttpServletRequest request) {
+
+        log.warn("No active document on {}: {}", request.getRequestURI(), ex.getMessage());
+        return buildErrorResponse(HttpStatus.NOT_FOUND, ex.getMessage(), request);
+    }
+
+    /**
      * Handles invalid client input (missing files, bad file extensions, magic byte mismatch).
      * HTTP 400 Bad Request
      */
@@ -41,6 +54,18 @@ public class GlobalExceptionHandler {
             InvalidFileException ex, HttpServletRequest request) {
 
         log.warn("Invalid file request on {}: {}", request.getRequestURI(), ex.getMessage());
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ex.getMessage(), request);
+    }
+
+    /**
+     * Handles illegal arguments (e.g. invalid chunking configuration).
+     * HTTP 400 Bad Request
+     */
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ErrorResponse> handleIllegalArgument(
+            IllegalArgumentException ex, HttpServletRequest request) {
+
+        log.warn("Illegal argument on {}: {}", request.getRequestURI(), ex.getMessage());
         return buildErrorResponse(HttpStatus.BAD_REQUEST, ex.getMessage(), request);
     }
 
