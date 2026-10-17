@@ -20,7 +20,7 @@
 
     <properties>
         <java.version>21</java.version>
-        <spring-ai.version>1.0.0-M4</spring-ai.version>
+        <spring-ai.version>1.0.0-M6</spring-ai.version>
         <pdfbox.version>3.0.3</pdfbox.version>
     </properties>
 
@@ -44,16 +44,10 @@
             <version>${pdfbox.version}</version>
         </dependency>
 
-        <!-- Spring AI Core: Core abstractions (Document, VectorStore, etc.) -->
+        <!-- Spring AI Core: Domain abstractions (Document, VectorStore, etc.) -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-core</artifactId>
-        </dependency>
-
-        <!-- Spring AI OpenAI: ChatModel & EmbeddingModel implementations -->
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-openai-spring-boot-starter</artifactId>
         </dependency>
 
         <!-- Spring Boot DevTools (optional, for hot reload during dev) -->

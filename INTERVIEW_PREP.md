@@ -56,4 +56,16 @@ This guide is designed to help you confidently explain the architecture, design 
 
 ---
 
+### 5. Why is a placeholder API key an anti-pattern, and how do you achieve true offline capability?
+**Interviewer:** *"Can't we just set `spring.ai.openai.api-key: fake-key` in `application.yml` for local development?"*
+
+**Answer:**
+> *"Setting a dummy string as an API key is a fragile anti-pattern for three reasons:*
+> 1. **It is not a mock:** *The underlying OpenAI HTTP client still attempts to connect to remote endpoints during execution and fails with runtime HTTP 401 Unauthorized errors.*
+> 2. **Premature Auto-Configuration Coupling:** *Adding `spring-ai-openai-spring-boot-starter` prematurely forces Spring Boot to load `OpenAiAutoConfiguration`, which requires API keys for chat, embeddings, and image models upon application context initialization.*
+> 3. **Clean Decoupling:** *In enterprise software design, stages or modules that do not need remote external services (such as PDF extraction in Stage 2 and text chunking in Stage 3) should only declare core domain dependencies (like `spring-ai-core`). When we introduce vector storage and AI in Stage 4/5, we provide a deterministic in-memory `MockEmbeddingModel` / mock chat service alongside production providers, enabling 100% offline testing without network calls or dummy credentials."*
+
+---
+
 *(This document will expand after each stage to cover chunking trade-offs, vector similarity metrics, prompt injection mitigation, and RAG evaluation).*
+
