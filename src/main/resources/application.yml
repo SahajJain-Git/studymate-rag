@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: studymate
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 20MB
+  ai:
+    openai:
+      # Defaults to environment variable OPENAI_API_KEY if present,
+      # or a placeholder key to allow offline startup during initial stages.
+      api-key: ${OPENAI_API_KEY:mock-key-for-development}
+      chat:
+        options:
+          model: gpt-4o-mini
+          temperature: 0.3
+      embedding:
+        options:
+          model: text-embedding-3-small
+
+server:
+  port: 8080
+
+studymate:
+  chunking:
+    chunk-size: 500
+    overlap: 50
+  retrieval:
+    top-k: 4
