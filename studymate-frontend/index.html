@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StudyMate — AI Study Assistant</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+    <!-- Header & Top Navigation -->
+    <header class="app-header">
+        <div class="header-inner">
+            <div class="brand-wrapper">
+                <div class="brand-logo" aria-hidden="true">S</div>
+                <div>
+                    <h1 class="brand-title">StudyMate</h1>
+                    <p class="brand-subtitle">AI-Powered Course Assistant (RAG)</p>
+                </div>
+            </div>
+
+            <!-- Backend Connection Status Indicator -->
+            <div id="backendStatusBadge" class="backend-status-badge" role="status" aria-live="polite">
+                <span class="status-dot"></span>
+                <span id="backendStatusText">Checking backend...</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Architecture & Baseline Notice Banner -->
+    <div class="offline-notice-banner">
+        <strong>Notice:</strong> Running on the Stage 5 <strong>deterministic offline baseline</strong>. Zero paid credentials, cloud telemetry, or external network calls required.
+    </div>
+
+    <!-- Main Dashboard -->
+    <main class="dashboard-container">
+
+        <!-- ==============================================
+             LEFT COLUMN: Document Upload & Index Management
+             ============================================== -->
+        <aside class="sidebar-column">
+
+            <!-- Step 1: Upload Card -->
+            <section class="card" aria-labelledby="uploadCardTitle">
+                <div class="card-header">
+                    <h2 id="uploadCardTitle" class="card-title">
+                        <span class="card-step-badge">1</span> Upload PDF
+                    </h2>
+                </div>
+
+                <!-- Dropzone Area -->
+                <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Drop PDF file here or click to browse">
+                    <span class="dropzone-icon" aria-hidden="true">📄</span>
+                    <p class="dropzone-text">Drag & drop your study PDF here</p>
+                    <p class="dropzone-subtext">or click to browse your computer (Max 20MB)</p>
+                    <input type="file" id="fileInput" class="file-input-hidden" accept=".pdf,application/pdf" aria-hidden="true">
+                </div>
+
+                <!-- Selected File Info Bar (Hidden by default) -->
+                <div id="selectedFileBar" class="selected-file-bar" style="display: none;">
+                    <div>
+                        <span id="selectedFileName" class="selected-file-name">filename.pdf</span>
+                        <span id="selectedFileSize" class="selected-file-size">0 KB</span>
+                    </div>
+                    <button type="button" id="removeFileBtn" class="btn btn-secondary" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">✕</button>
+                </div>
+
+                <!-- Upload Action Button -->
+                <button type="button" id="uploadBtn" class="btn btn-primary btn-block" style="margin-top: 1rem;" disabled>
+                    <span>Extract & Upload PDF</span>
+                </button>
+
+                <!-- Upload Feedback Alert -->
+                <div id="uploadAlert" class="alert" style="display: none; margin-top: 1rem;" role="alert"></div>
+            </section>
+
+            <!-- Step 2: Document Status & Vector Indexing Card -->
+            <section id="docStatusCard" class="card" aria-labelledby="statusCardTitle" style="display: none;">
+                <div class="card-header">
+                    <h2 id="statusCardTitle" class="card-title">
+                        <span class="card-step-badge">2</span> Active Document
+                    </h2>
+                    <span id="indexStatusBadge" class="status-pill not-indexed">Not Indexed</span>
+                </div>
+
+                <div class="meta-grid">
+                    <div class="meta-item">
+                        <div class="meta-label">Total Pages</div>
+                        <div id="metaTotalPages" class="meta-value">0</div>
+                    </div>
+                    <div class="meta-item">
+                        <div class="meta-label">Total Characters</div>
+                        <div id="metaTotalChars" class="meta-value">0</div>
+                    </div>
+                </div>
+
+                <!-- Page Previews Accordion -->
+                <div class="page-previews-container">
+                    <button type="button" id="togglePreviewsBtn" class="btn btn-secondary btn-block" style="font-size: 0.8rem; padding: 0.4rem 0.75rem;">
+                        <span>Show Page Previews ▼</span>
+                    </button>
+                    <div id="pagePreviewsList" style="display: none; margin-top: 0.75rem;"></div>
+                </div>
+
+                <!-- Indexing Action -->
+                <div style="margin-top: 1.25rem;">
+                    <button type="button" id="indexBtn" class="btn btn-success btn-block">
+                        <span>⚡ Index Document for Search</span>
+                    </button>
+                    <p class="dropzone-subtext" style="text-align: center; margin-top: 0.4rem;">
+                        Splits into 500-char chunks and indexes into SimpleVectorStore
+                    </p>
+                </div>
+
+                <!-- Index Feedback Alert -->
+                <div id="indexAlert" class="alert" style="display: none; margin-top: 1rem;" role="alert"></div>
+            </section>
+        </aside>
+
+        <!-- ==============================================
+             RIGHT COLUMN: AI Q&A Workspace & Citations
+             ============================================== -->
+        <div class="content-column">
+
+            <!-- Question Input Console Card -->
+            <section class="card" aria-labelledby="questionCardTitle">
+                <div class="card-header">
+                    <h2 id="questionCardTitle" class="card-title">
+                        <span class="card-step-badge">3</span> Ask StudyMate
+                    </h2>
+                    <span id="ragReadyIndicator" class="dropzone-subtext">Upload & index a document first</span>
+                </div>
+
+                <form id="questionForm">
+                    <div class="form-group">
+                        <label for="questionInput" class="form-label">Your Question</label>
+                        <textarea id="questionInput" class="form-textarea" placeholder="e.g. What is encapsulation and why is it important in object-oriented programming?" rows="3" disabled></textarea>
+                    </div>
+
+                    <div class="form-row" style="margin-bottom: 1rem; flex-wrap: wrap;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <label for="topKSelect" class="form-label" style="margin-bottom: 0;">Top Passages:</label>
+                            <select id="topKSelect" class="form-select">
+                                <option value="2">2 chunks</option>
+                                <option value="4" selected>4 chunks (Default)</option>
+                                <option value="6">6 chunks</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="btn-group" style="margin-top: 0;">
+                        <button type="submit" id="askBtn" class="btn btn-primary" disabled>
+                            <span>🔍 Ask StudyMate</span>
+                        </button>
+                        <button type="button" id="clearBtn" class="btn btn-secondary">
+                            <span>Clear</span>
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Query Feedback Alert -->
+                <div id="queryAlert" class="alert" style="display: none; margin-top: 1rem;" role="alert"></div>
+            </section>
+
+            <!-- Generated Answer Card -->
+            <section class="card" aria-labelledby="answerCardTitle">
+                <div class="card-header">
+                    <h2 id="answerCardTitle" class="card-title">Answer</h2>
+                    <button type="button" id="copyAnswerBtn" class="btn btn-secondary" style="padding: 0.3rem 0.75rem; font-size: 0.75rem;" disabled>
+                        <span>📋 Copy</span>
+                    </button>
+                </div>
+
+                <!-- Insufficient Context Notice Banner -->
+                <div id="insufficientContextBanner" class="insufficient-context-banner" style="display: none;">
+                    <span>⚠️</span>
+                    <div>
+                        <strong>Notice:</strong> The uploaded document does not contain sufficient information to substantiate an answer for this question.
+                    </div>
+                </div>
+
+                <!-- Answer Content Box -->
+                <div id="answerContent" class="answer-box">
+                    <div class="empty-state">
+                        <span class="empty-state-icon" aria-hidden="true">💡</span>
+                        <p class="empty-state-text">Your grounded answer will appear here once you ask a question.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Authoritative Citations Card -->
+            <section class="card" aria-labelledby="citationsCardTitle">
+                <div class="card-header">
+                    <h2 id="citationsCardTitle" class="card-title">
+                        Source Citations
+                        <span id="citationsCountBadge" class="card-step-badge" style="background-color: var(--bg-muted); color: var(--text-dim);">0</span>
+                    </h2>
+                </div>
+
+                <div id="citationsContainer">
+                    <div class="empty-state">
+                        <span class="empty-state-icon" aria-hidden="true">📑</span>
+                        <p class="empty-state-text">No citations retrieved yet. Verified source passages will be displayed here.</p>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+        <p>StudyMate — Built with Java 21, Spring Boot 3.3.5, Apache PDFBox, and Spring AI 1.0.0-M6.</p>
+    </footer>
+
+    <!-- Scripts in Required Order -->
+    <script src="js/config.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

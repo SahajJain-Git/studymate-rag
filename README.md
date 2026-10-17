@@ -75,8 +75,8 @@ StudyMate executes two primary data workflows:
 | **Stage 3** | **Text Chunking Strategy** | **Completed** | Sliding window algorithm, configurable overlap, InMemoryDocumentStore, chunk inspection endpoint. |
 | **Stage 4** | **Embeddings & Vector Storage** | **Completed** | Spring AI SimpleVectorStore, deterministic local embedding baseline, top-k similarity search, stale chunk eviction. |
 | **Stage 5** | **RAG Question Answering** | **Completed** | Prompt templating, RagService, QueryController, grounded answer synthesis, authoritative Java citations, insufficient-context guardrails. |
-| **Stage 6** | **Simple Frontend** | *Next* | Clean UI (drag-and-drop PDF upload, question console, source citation drawer). |
-| **Stage 7** | **Testing & Integration** | *Upcoming* | End-to-end integration tests, error handling, mock vs live API testing. |
+| **Stage 6** | **Simple Frontend** | **Completed** | Clean AI dashboard in vanilla HTML5/CSS3/JS (studymate-frontend), drag-and-drop PDF upload, indexing action, citation drawer, CORS enablement. |
+| **Stage 7** | **Testing & Integration** | *Next* | End-to-end integration tests, error handling, mock vs live API testing. |
 | **Stage 8** | **Interview Preparation Guide** | *Upcoming* | Deep architectural Q&A, trade-off analysis, resume-ready bullet points. |
 
 ---
@@ -86,16 +86,24 @@ StudyMate executes two primary data workflows:
 ### Prerequisites
 - **Java 21+** (or Java 25 LTS)
 - Maven (or bundled `./mvnw` / `mvnw.cmd`)
+- Python 3 (or any static HTTP server for serving the frontend)
 
 ### Running the Full Test Suite
 ```bash
 ./mvnw clean test
 ```
 
-### Starting the Server Locally
+### 1. Starting the Spring Boot Backend (Port 8080)
 ```bash
 ./mvnw spring-boot:run
 ```
+
+### 2. Starting the Frontend Dashboard (Port 3000)
+In a separate terminal window:
+```bash
+python -m http.server 3000 --directory studymate-frontend
+```
+Then open your browser and navigate to: **`http://localhost:3000`**
 
 ---
 

@@ -270,7 +270,54 @@ This guide is designed to help you confidently explain the architecture, design 
 
 ---
 
-*(This document will expand after each stage to cover frontend design, end-to-end evaluation, and deployment).*
+## 💡 Stage 6 Frontend Integration & Web Architecture Questions & Answers
+
+### 24. Why choose Vanilla HTML5, CSS3, and JavaScript over a framework like React or Vue?
+**Interviewer:** *"Why didn't you use React, Vite, or Next.js for StudyMate's frontend?"*
+
+**Answer:**
+> *"Choosing vanilla web standards for StudyMate offers clear engineering advantages:*
+> 1. **Zero Build Step & Zero Dependencies:** *No `npm install`, `node_modules` bloat, webpack/vite configuration drift, or security vulnerabilities in third-party npm packages. The frontend runs directly in any modern browser.*
+> 2. **Clear Architectural Separation:** *The Spring Boot backend and static frontend are completely decoupled. The frontend communicates exclusively via standard HTTP REST endpoints (`fetch`), proving that our backend APIs are client-agnostic.*
+> 3. **Educational Transparency:** *For a beginner or junior developer, understanding HTTP request lifecycles, FormData, CORS, and the DOM without the abstraction layer of virtual DOMs and state hooks provides deeper foundational insight."*
+
+---
+
+### 25. What is CORS, and how is it secured in Spring Boot?
+**Interviewer:** *"What is Cross-Origin Resource Sharing (CORS), and what happens if you don't configure it when serving the frontend on port 3000 and backend on port 8080?"*
+
+**Answer:**
+> *"CORS is a browser security mechanism enforced by the Same-Origin Policy (SOP):*
+> - *An origin is defined by the tuple `(protocol, host, port)`. `http://localhost:3000` and `http://localhost:8080` are distinct origins because their ports differ.*
+> - *When JavaScript on port 3000 makes a `fetch()` call to port 8080, the browser blocks the response unless the backend explicitly responds with matching `Access-Control-Allow-Origin` headers.*
+> - *In StudyMate, we implemented `WebMvcConfigurer.addCorsMappings()` in [`WebConfig`](file:///d:/Projects/Project2/src/main/java/com/studymate/config/WebConfig.java) using `allowedOriginPatterns("http://localhost:*", "http://127.0.0.1:*")`. This allows any local developer port while strictly rejecting unauthorized external domains."*
+
+---
+
+### 26. How do you protect against Cross-Site Scripting (XSS) when rendering RAG responses?
+**Interviewer:** *"If a user uploads a malicious PDF containing embedded `<script>alert('hacked')</script>` tags, how does your frontend prevent XSS?"*
+
+**Answer:**
+> *"By strictly avoiding `element.innerHTML = response.answer`:*
+> - *If you inject server-returned text into `innerHTML`, any HTML/JS tags extracted from the PDF will execute in the student's browser context.*
+> - *In [`app.js`](file:///d:/Projects/Project2/studymate-frontend/js/app.js), we construct DOM elements using `document.createElement()` and assign text using **`element.textContent`** (or `document.createTextNode()`).*
+> - *The browser treats `textContent` purely as literal character data, completely neutralizing malicious scripts and HTML tags."*
+
+---
+
+### 27. Why did you expose Upload and Indexing as two distinct actions in the UI?
+**Interviewer:** *"Why not automatically index the PDF immediately upon upload?"*
+
+**Answer:**
+> *"Separating Upload and Indexing reflects the core architectural stages of RAG:*
+> 1. **Inspection & Verification (Step 1):** *Uploading parses the PDF and returns page counts, character counts, and page previews. The user can review whether the document was parsed cleanly before committing to chunking and vectorization.*
+> 2. **Resource Efficiency (Step 2):** *Vector embedding and indexing is computationally intensive. In production systems with paid neural embeddings, you want deliberate user confirmation or validation before spending embedding tokens or vector store writes.*
+> 3. **Clear State Feedback:** *The UI displays an explicit status pill (`Not Indexed` -> `Indexing...` -> `Indexed & Searchable`), making the state machine observable and easy to debug."*
+
+---
+
+*(This document will expand after each stage to cover end-to-end evaluation, testing, and deployment).*
+
 
 
 
