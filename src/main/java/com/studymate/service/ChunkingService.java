@@ -67,6 +67,7 @@ public class ChunkingService {
                     page.text(),
                     page.pageNumber(),
                     document.filename(),
+                    document.documentId(),
                     this.chunkSize,
                     this.overlap,
                     globalChunkIndex
@@ -74,8 +75,8 @@ public class ChunkingService {
             allChunks.addAll(pageChunks);
         }
 
-        log.info("Chunked document '{}' ({} pages) into {} total chunks.",
-                document.filename(), document.totalPages(), allChunks.size());
+        log.info("Chunked document '{}' [id: {}] ({} pages) into {} total chunks.",
+                document.filename(), document.documentId(), document.totalPages(), allChunks.size());
 
         return allChunks;
     }
@@ -86,6 +87,7 @@ public class ChunkingService {
      * @param text             The raw text to chunk
      * @param pageNumber       1-based page number for citation
      * @param sourceFilename   Name of the original PDF
+     * @param documentId       Unique document upload ID
      * @param customChunkSize  Window size in characters
      * @param customOverlap    Sliding overlap in characters
      * @param chunkIndexCounter Thread-safe sequential index counter
@@ -95,6 +97,7 @@ public class ChunkingService {
             String text,
             int pageNumber,
             String sourceFilename,
+            String documentId,
             int customChunkSize,
             int customOverlap,
             AtomicInteger chunkIndexCounter) {
@@ -112,8 +115,8 @@ public class ChunkingService {
         // If text is shorter than or equal to chunk size, produce exactly one chunk
         if (textLength <= customChunkSize) {
             int index = chunkIndexCounter.getAndIncrement();
-            String chunkId = generateChunkId(sourceFilename, pageNumber, index);
-            chunks.add(new TextChunk(chunkId, cleanText, pageNumber, index, sourceFilename));
+            String chunkId = generateChunkId(documentId, sourceFilename, pageNumber, index);
+            chunks.add(new TextChunk(chunkId, documentId, cleanText, pageNumber, index, sourceFilename));
             return chunks;
         }
 
@@ -127,8 +130,8 @@ public class ChunkingService {
 
             if (!chunkContent.isEmpty()) {
                 int index = chunkIndexCounter.getAndIncrement();
-                String chunkId = generateChunkId(sourceFilename, pageNumber, index);
-                chunks.add(new TextChunk(chunkId, chunkContent, pageNumber, index, sourceFilename));
+                String chunkId = generateChunkId(documentId, sourceFilename, pageNumber, index);
+                chunks.add(new TextChunk(chunkId, documentId, chunkContent, pageNumber, index, sourceFilename));
             }
 
             // If this chunk reached the end of the text, stop
@@ -140,6 +143,19 @@ public class ChunkingService {
         }
 
         return chunks;
+    }
+
+    /**
+     * Backward-compatible overload for callers without explicit documentId.
+     */
+    public List<TextChunk> chunkText(
+            String text,
+            int pageNumber,
+            String sourceFilename,
+            int customChunkSize,
+            int customOverlap,
+            AtomicInteger chunkIndexCounter) {
+        return chunkText(text, pageNumber, sourceFilename, "doc-default", customChunkSize, customOverlap, chunkIndexCounter);
     }
 
     /**
@@ -160,9 +176,10 @@ public class ChunkingService {
         }
     }
 
-    private String generateChunkId(String filename, int pageNumber, int index) {
+    private String generateChunkId(String documentId, String filename, int pageNumber, int index) {
+        String safeDocId = (documentId == null || documentId.isBlank()) ? "doc" : documentId;
         String safeName = (filename == null) ? "doc" : filename.replaceAll("[^a-zA-Z0-9.-]", "_");
-        return String.format("%s-p%d-c%d", safeName, pageNumber, index);
+        return String.format("%s-%s-p%d-c%d", safeDocId, safeName, pageNumber, index);
     }
 
     public int getChunkSize() {

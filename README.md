@@ -73,8 +73,8 @@ StudyMate executes two primary data workflows:
 | **Stage 1** | **Spring Boot Foundation** | **Completed** | Maven setup, application configuration, diagnostic health endpoint, initial tests. |
 | **Stage 2** | **PDF Upload & Text Extraction** | **Completed** | Multipart upload, Apache PDFBox 3 integration, magic byte validation, page-level text extraction. |
 | **Stage 3** | **Text Chunking Strategy** | **Completed** | Sliding window algorithm, configurable overlap, InMemoryDocumentStore, chunk inspection endpoint. |
-| **Stage 4** | **Embeddings & Vector Storage** | *Next* | Spring AI VectorStore integration, embedding generation, top-k similarity search. |
-| **Stage 5** | **RAG Question Answering** | *Upcoming* | Augmented prompt templating, LLM interaction, hallucination mitigation. |
+| **Stage 4** | **Embeddings & Vector Storage** | **Completed** | Spring AI SimpleVectorStore, deterministic local embedding baseline, top-k similarity search, stale chunk eviction. |
+| **Stage 5** | **RAG Question Answering** | *Next* | Augmented prompt templating, LLM interaction, hallucination mitigation. |
 | **Stage 6** | **Simple Frontend** | *Upcoming* | Clean UI (drag-and-drop PDF upload, question console, source citation drawer). |
 | **Stage 7** | **Testing & Integration** | *Upcoming* | End-to-end integration tests, error handling, mock vs live API testing. |
 | **Stage 8** | **Interview Preparation Guide** | *Upcoming* | Deep architectural Q&A, trade-off analysis, resume-ready bullet points. |
@@ -218,5 +218,68 @@ curl -X GET http://localhost:8080/api/documents/chunks
   "path": "/api/documents/chunks"
 }
 ```
+
+### 4. Vector Store Indexing (Stage 4)
+- **Endpoint:** `POST /api/documents/index`
+- **Description:** Takes the active document from `InMemoryDocumentStore`, chunks it, converts chunks to Spring AI `Document` entities with citation metadata, and indexes them in `SimpleVectorStore`. If an older document was previously indexed, its vectors are automatically evicted to prevent stale results.
+
+#### cURL Example:
+```bash
+curl -X POST http://localhost:8080/api/documents/index
+```
+
+#### Success Response (`200 OK`):
+```json
+{
+  "documentId": "doc-7f1a3b8c",
+  "filename": "lecture-notes.pdf",
+  "totalChunksIndexed": 4,
+  "message": "Successfully indexed 4 chunks for document 'lecture-notes.pdf'. Ready for vector search."
+}
+```
+
+### 5. Semantic Similarity Search (Stage 4)
+- **Endpoint:** `POST /api/documents/search`
+- **Content-Type:** `application/json`
+- **Description:** Performs top-$k$ similarity search against indexed vector chunks using the local deterministic embedding model.
+
+#### Request Body (`SearchQueryRequest`):
+```json
+{
+  "query": "What is encapsulation in object-oriented programming?",
+  "topK": 3,
+  "minThreshold": 0.0
+}
+```
+
+#### Success Response (`200 OK`):
+```json
+{
+  "query": "What is encapsulation in object-oriented programming?",
+  "documentId": "doc-7f1a3b8c",
+  "totalMatches": 2,
+  "results": [
+    {
+      "chunkId": "doc-7f1a3b8c-lecture-notes_pdf-p1-c0",
+      "documentId": "doc-7f1a3b8c",
+      "text": "Chapter 1: Principles of Object-Oriented Programming. Encapsulation hides internal state...",
+      "pageNumber": 1,
+      "chunkIndex": 0,
+      "sourceFilename": "lecture-notes.pdf",
+      "score": 0.8421
+    },
+    {
+      "chunkId": "doc-7f1a3b8c-lecture-notes_pdf-p1-c1",
+      "documentId": "doc-7f1a3b8c",
+      "text": "...Programming language paradigms and encapsulation restrict direct access...",
+      "pageNumber": 1,
+      "chunkIndex": 1,
+      "sourceFilename": "lecture-notes.pdf",
+      "score": 0.6514
+    }
+  ]
+}
+```
+
 
 

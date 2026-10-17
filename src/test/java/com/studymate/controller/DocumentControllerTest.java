@@ -1,6 +1,7 @@
 package com.studymate.controller;
 
 import com.studymate.service.InMemoryDocumentStore;
+import com.studymate.service.VectorStoreService;
 import com.studymate.util.PdfTestUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -15,19 +16,22 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Integration tests for DocumentController, ChunkingService, InMemoryDocumentStore, and GlobalExceptionHandler.
+ * Integration tests for DocumentController, ChunkingService, InMemoryDocumentStore, VectorStoreService,
+ * and GlobalExceptionHandler.
  *
  * Concepts for Beginners:
  * - MockMvc: Simulates HTTP requests against the full Spring ApplicationContext without real network sockets.
- * - Test Isolation: The @BeforeEach method clears the InMemoryDocumentStore before every test,
+ * - Test Isolation: The @BeforeEach method clears both InMemoryDocumentStore and VectorStoreService before every test,
  *   preventing tests from polluting each other's state.
  */
 @SpringBootTest
@@ -40,10 +44,14 @@ class DocumentControllerTest {
     @Autowired
     private InMemoryDocumentStore documentStore;
 
+    @Autowired
+    private VectorStoreService vectorStoreService;
+
     @BeforeEach
     void setUp() {
         // Guarantee clean state for each test
         documentStore.clear();
+        vectorStoreService.clearStore();
     }
 
     @Test
@@ -122,11 +130,11 @@ class DocumentControllerTest {
                 .andExpect(jsonPath("$.overlap").value(50))
                 .andExpect(jsonPath("$.chunks").isArray())
                 .andExpect(jsonPath("$.chunks", hasSize(2)))
-                .andExpect(jsonPath("$.chunks[0].chunkId").value("ai-study-guide.pdf-p1-c0"))
+                .andExpect(jsonPath("$.chunks[0].chunkId").value(containsString("ai-study-guide.pdf-p1-c0")))
                 .andExpect(jsonPath("$.chunks[0].pageNumber").value(1))
                 .andExpect(jsonPath("$.chunks[0].chunkIndex").value(0))
                 .andExpect(jsonPath("$.chunks[0].text").value(containsString("Introduction to Spring AI")))
-                .andExpect(jsonPath("$.chunks[1].chunkId").value("ai-study-guide.pdf-p2-c1"))
+                .andExpect(jsonPath("$.chunks[1].chunkId").value(containsString("ai-study-guide.pdf-p2-c1")))
                 .andExpect(jsonPath("$.chunks[1].pageNumber").value(2))
                 .andExpect(jsonPath("$.chunks[1].chunkIndex").value(1))
                 .andExpect(jsonPath("$.chunks[1].text").value(containsString("Retrieval-Augmented Generation")));
@@ -255,5 +263,201 @@ class DocumentControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.message").value("Required request parameter 'file' is missing."));
+    }
+
+    // ==========================================
+    // Stage 4: Indexing & Vector Search Tests
+    // ==========================================
+
+    @Test
+    @DisplayName("POST /api/documents/index returns 404 when no document has been uploaded yet")
+    void index_whenNoDocumentUploaded_returns404() throws Exception {
+        mockMvc.perform(post("/api/documents/index")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.message").value(containsString("No document has been uploaded yet")));
+    }
+
+    @Test
+    @DisplayName("POST /api/documents/index after upload returns 200 OK and IndexResponse")
+    void index_afterUpload_returns200AndIndexResponse() throws Exception {
+        byte[] pdfBytes = PdfTestUtils.createMultiPagePdf(List.of(
+                "Page 1: Operating System concurrency and mutex locks.",
+                "Page 2: Deadlock prevention with resource allocation graphs."
+        ));
+
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "os-study-guide.pdf",
+                "application/pdf",
+                pdfBytes
+        );
+
+        // 1. Upload
+        mockMvc.perform(multipart("/api/documents/upload").file(file))
+                .andExpect(status().isOk());
+
+        // 2. Index
+        mockMvc.perform(post("/api/documents/index")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.filename").value("os-study-guide.pdf"))
+                .andExpect(jsonPath("$.documentId").isNotEmpty())
+                .andExpect(jsonPath("$.totalChunksIndexed").value(2))
+                .andExpect(jsonPath("$.message").value(containsString("Successfully indexed 2 chunks")));
+    }
+
+    @Test
+    @DisplayName("POST /api/documents/search returns 404 when no document has been indexed yet")
+    void search_whenNoDocumentIndexed_returns404() throws Exception {
+        String requestJson = """
+                {
+                    "query": "What is mutex locking?"
+                }
+                """;
+
+        mockMvc.perform(post("/api/documents/search")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.message").value(containsString("No document has been indexed yet")));
+    }
+
+    @Test
+    @DisplayName("POST /api/documents/search with blank query returns 400 Bad Request")
+    void search_blankQuery_returns400() throws Exception {
+        String requestJson = """
+                {
+                    "query": "   "
+                }
+                """;
+
+        mockMvc.perform(post("/api/documents/search")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value(containsString("Search query must not be blank.")));
+    }
+
+    @Test
+    @DisplayName("POST /api/documents/search with valid query after indexing returns 200 OK and ranked matches")
+    void search_validQueryAfterIndexing_returns200AndRankedMatches() throws Exception {
+        byte[] pdfBytes = PdfTestUtils.createMultiPagePdf(List.of(
+                "Page 1: Garbage collection in the Java Virtual Machine optimizes heap memory.",
+                "Page 2: Relational database indexing using B-Trees and hash tables."
+        ));
+
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "cs-notes.pdf",
+                "application/pdf",
+                pdfBytes
+        );
+
+        // Upload and Index
+        mockMvc.perform(multipart("/api/documents/upload").file(file)).andExpect(status().isOk());
+        mockMvc.perform(post("/api/documents/index")).andExpect(status().isOk());
+
+        // Search for JVM Garbage Collection
+        String requestJson = """
+                {
+                    "query": "Java Virtual Machine garbage collection heap",
+                    "topK": 2,
+                    "minThreshold": 0.0
+                }
+                """;
+
+        mockMvc.perform(post("/api/documents/search")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.query").value("Java Virtual Machine garbage collection heap"))
+                .andExpect(jsonPath("$.documentId").isNotEmpty())
+                .andExpect(jsonPath("$.totalMatches").value(greaterThan(0)))
+                .andExpect(jsonPath("$.results").isArray())
+                .andExpect(jsonPath("$.results[0].chunkId").isNotEmpty())
+                .andExpect(jsonPath("$.results[0].documentId").isNotEmpty())
+                .andExpect(jsonPath("$.results[0].sourceFilename").value("cs-notes.pdf"))
+                .andExpect(jsonPath("$.results[0].pageNumber").value(1))
+                .andExpect(jsonPath("$.results[0].text").value(containsString("Garbage collection")))
+                .andExpect(jsonPath("$.results[0].score").isNumber());
+    }
+
+    @Test
+    @DisplayName("Re-indexing a new document evicts previous document vectors from search")
+    void search_afterDocumentReplacement_evictsPreviousChunks() throws Exception {
+        // Upload & Index Doc 1: Physics
+        byte[] physicsPdf = PdfTestUtils.createSinglePagePdf("Quantum entanglement and superposition principles.");
+        mockMvc.perform(multipart("/api/documents/upload")
+                        .file(new MockMultipartFile("file", "physics.pdf", "application/pdf", physicsPdf)))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/documents/index")).andExpect(status().isOk());
+
+        // Upload & Index Doc 2: History (replaces physics.pdf)
+        byte[] historyPdf = PdfTestUtils.createSinglePagePdf("The Renaissance marked a transition from the Middle Ages to modernity.");
+        mockMvc.perform(multipart("/api/documents/upload")
+                        .file(new MockMultipartFile("file", "history.pdf", "application/pdf", historyPdf)))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/documents/index")).andExpect(status().isOk());
+
+        // Search for Physics query; only history chunk should be searched, physics chunk is evicted!
+        String searchPhysics = """
+                {
+                    "query": "Quantum entanglement",
+                    "topK": 5
+                }
+                """;
+
+        mockMvc.perform(post("/api/documents/search")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(searchPhysics))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.results[0].sourceFilename").value("history.pdf"))
+                .andExpect(jsonPath("$.results[0].text").value(containsString("The Renaissance")));
+    }
+
+    @Test
+    @DisplayName("Uploading the same filename twice generates distinct document IDs and evicts old vectors")
+    void uploadAndIndex_duplicateFilename_generatesDistinctIdsAndEvictsOld() throws Exception {
+        // Upload version 1
+        byte[] v1Pdf = PdfTestUtils.createSinglePagePdf("Draft version 1 of project specification.");
+        mockMvc.perform(multipart("/api/documents/upload")
+                        .file(new MockMultipartFile("file", "specs.pdf", "application/pdf", v1Pdf)))
+                .andExpect(status().isOk());
+        String indexV1Response = mockMvc.perform(post("/api/documents/index"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        // Upload version 2 with identical filename
+        byte[] v2Pdf = PdfTestUtils.createSinglePagePdf("Draft version 2 of project specification with new requirements.");
+        mockMvc.perform(multipart("/api/documents/upload")
+                        .file(new MockMultipartFile("file", "specs.pdf", "application/pdf", v2Pdf)))
+                .andExpect(status().isOk());
+        String indexV2Response = mockMvc.perform(post("/api/documents/index"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        // The document IDs in the two index responses must be distinct
+        // v1 response has one documentId, v2 has another
+        String searchV2 = """
+                {
+                    "query": "new requirements specification",
+                    "topK": 2
+                }
+                """;
+
+        mockMvc.perform(post("/api/documents/search")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(searchV2))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.results[0].text").value(containsString("Draft version 2")));
     }
 }

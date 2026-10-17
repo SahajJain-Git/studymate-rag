@@ -3,6 +3,7 @@ package com.studymate.controller;
 import com.studymate.dto.ErrorResponse;
 import com.studymate.exception.EmptyPdfException;
 import com.studymate.exception.InvalidFileException;
+import com.studymate.exception.NoDocumentIndexedException;
 import com.studymate.exception.NoDocumentUploadedException;
 import com.studymate.exception.PdfProcessingException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -46,6 +47,18 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Handles requests for vector search when no document has been indexed yet.
+     * HTTP 404 Not Found
+     */
+    @ExceptionHandler(NoDocumentIndexedException.class)
+    public ResponseEntity<ErrorResponse> handleNoDocumentIndexed(
+            NoDocumentIndexedException ex, HttpServletRequest request) {
+
+        log.warn("No indexed document on {}: {}", request.getRequestURI(), ex.getMessage());
+        return buildErrorResponse(HttpStatus.NOT_FOUND, ex.getMessage(), request);
+    }
+
+    /**
      * Handles invalid client input (missing files, bad file extensions, magic byte mismatch).
      * HTTP 400 Bad Request
      */
@@ -67,6 +80,23 @@ public class GlobalExceptionHandler {
 
         log.warn("Illegal argument on {}: {}", request.getRequestURI(), ex.getMessage());
         return buildErrorResponse(HttpStatus.BAD_REQUEST, ex.getMessage(), request);
+    }
+
+    /**
+     * Handles payload validation failures triggered by @Valid.
+     * HTTP 400 Bad Request
+     */
+    @ExceptionHandler(org.springframework.web.bind.MethodArgumentNotValidException.class)
+    public ResponseEntity<ErrorResponse> handleValidationException(
+            org.springframework.web.bind.MethodArgumentNotValidException ex, HttpServletRequest request) {
+
+        String errorMessage = ex.getBindingResult().getFieldErrors().stream()
+                .map(error -> error.getDefaultMessage())
+                .findFirst()
+                .orElse("Validation failed for request payload.");
+
+        log.warn("Payload validation failed on {}: {}", request.getRequestURI(), errorMessage);
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, errorMessage, request);
     }
 
     /**

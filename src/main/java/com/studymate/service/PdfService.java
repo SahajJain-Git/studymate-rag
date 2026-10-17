@@ -100,10 +100,11 @@ public class PdfService {
                         "Scanned image-only PDFs without an OCR text layer are not supported.");
             }
 
-            log.info("Successfully extracted {} characters across {} pages from file: '{}'",
-                    totalExtractedChars, totalPages, originalFilename);
+            String documentId = "doc-" + java.util.UUID.randomUUID().toString().substring(0, 8);
+            log.info("Successfully extracted {} characters across {} pages for documentId: '{}', file: '{}'",
+                    totalExtractedChars, totalPages, documentId, originalFilename);
 
-            return new ExtractedDocument(originalFilename, totalPages, totalExtractedChars, extractedPages);
+            return new ExtractedDocument(documentId, originalFilename, totalPages, totalExtractedChars, extractedPages);
 
         } catch (EmptyPdfException | InvalidFileException | PdfProcessingException e) {
             throw e;

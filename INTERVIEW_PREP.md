@@ -157,7 +157,63 @@ This guide is designed to help you confidently explain the architecture, design 
 
 ---
 
-*(This document will expand after each stage to cover vector similarity metrics, prompt injection mitigation, and RAG evaluation).*
+## 💡 Stage 4 Embeddings & Vector Storage Questions & Answers
+
+### 14. What is Cosine Similarity, and why is L2 normalization important?
+**Interviewer:** *"How does vector similarity search work mathematically, and why do you normalize vectors?"*
+
+**Answer:**
+> *"Cosine similarity measures the angle between two multi-dimensional vectors $\mathbf{A}$ and $\mathbf{B}$ rather than their magnitude:*
+> $$\text{Cosine Similarity} = \frac{\mathbf{A} \cdot \mathbf{B}}{\|\mathbf{A}\|_2 \|\mathbf{B}\|_2} = \frac{\sum_{i=1}^n A_i B_i}{\sqrt{\sum_{i=1}^n A_i^2} \sqrt{\sum_{i=1}^n B_i^2}}$$
+> - *If both $\mathbf{A}$ and $\mathbf{B}$ are **L2-normalized** to unit length ($\|\mathbf{A}\|_2 = 1.0$ and $\|\mathbf{B}\|_2 = 1.0$), the denominator becomes $1 \times 1 = 1$.*
+> - *Consequently, the cosine similarity simplifies purely to the dot product $\mathbf{A} \cdot \mathbf{B} = \sum_{i=1}^n A_i B_i$. This reduces $O(n)$ floating-point square roots and divisions to a single vectorized dot product, dramatically speeding up top-$k$ similarity queries across thousands of vectors."*
+
+---
+
+### 15. What is the difference between a dense neural embedding model and a lexical/deterministic vectorizer?
+**Interviewer:** *"Can your `DeterministicLocalEmbeddingModel` be used in production for true semantic search?"*
+
+**Answer:**
+> *"No, and we explicitly document it as a lexical testing baseline rather than a neural model:*
+> - **Neural Semantic Embeddings (e.g. OpenAI text-embedding-3, BERT, BGE):** *Trained on billions of tokens using transformer architectures. They map synonyms and semantic concepts to close vector spaces (e.g. 'automobile' and 'car' have high cosine similarity even if they share zero characters).*
+> - **Lexical Deterministic Baseline (`DeterministicLocalEmbeddingModel`):** *Uses token hashing and character 3-grams over a fixed 384-dimensional vector with L2 normalization. It matches overlapping vocabulary and subwords deterministically without requiring paid API keys, network calls, or GPUs.*
+> - **Why this distinction matters:** *In interview settings, claiming lexical hashing does 'semantic reasoning' is a red flag. Being transparent that this is an offline testing baseline demonstrates architectural honesty and deep understanding of ML vs. algorithmic baselines."*
+
+---
+
+### 16. How does Spring AI's `SimpleVectorStore` work, and how did you prevent stale chunks?
+**Interviewer:** *"How does `SimpleVectorStore` store data, and what happens when a user re-indexes or uploads a new document?"*
+
+**Answer:**
+> *"Spring AI's `SimpleVectorStore` is an in-memory vector database that stores `org.springframework.ai.document.Document` instances in an internal `ConcurrentHashMap<String, Document>`:*
+> 1. **Stale Vector Problem:** *If a user uploads Document A (yielding chunks A0, A1), and later uploads Document B without purging the store, Document A's chunks linger as 'ghost' vectors. A query on Document B could retrieve irrelevant chunks from Document A.*
+> 2. **Our Solution in `VectorStoreService`:** *We track the set of currently indexed chunk IDs (`indexedChunkIds`). Whenever a new document is indexed, we invoke `vectorStore.delete(oldChunkIds)` to purge prior chunks before or during state transition, guaranteeing that the vector store strictly represents the active document."*
+
+---
+
+### 17. How do you guarantee state consistency if vector indexing fails?
+**Interviewer:** *"What happens if `vectorStore.add(...)` throws an out-of-memory or parsing error halfway through indexing?"*
+
+**Answer:**
+> *"In `VectorStoreService.indexDocument()`, we protect state transitions using a synchronized block and atomic updates:*
+> - *We prepare all Spring AI `Document` entities and generate IDs first.*
+> - *We call `vectorStore.add(springAiDocs)` before updating our internal tracking state.*
+> - *If `vectorStore.add()` throws an exception, the method terminates before `indexedChunkIds` and `indexedDocumentId` are updated. The service retains its previous state, preventing inconsistent or partially indexed documents from corrupting similarity search."*
+
+---
+
+### 18. Why generate a unique `documentId` per upload rather than relying on the filename?
+**Interviewer:** *"Why do chunk IDs include a unique `documentId` instead of just `filename-p1-c0`?"*
+
+**Answer:**
+> *"Users frequently upload files with the same filename (e.g., `lecture_notes.pdf`, `assignment.pdf`, `document.pdf`) across different revisions or sessions:*
+> - *If chunk IDs were derived purely from filename and chunk index, uploading a revised version with identical filename would create chunk ID collisions.*
+> - *By generating a unique `documentId` (e.g. `doc-a1b2c3d4`) on each upload and formatting chunk IDs as `doc-a1b2c3d4-notes.pdf-p1-c0`, every chunk in the system is globally unique across time and uploads."*
+
+---
+
+*(This document will expand after each stage to cover prompt templates, LLM integration, and RAG evaluation).*
+
 
 
 

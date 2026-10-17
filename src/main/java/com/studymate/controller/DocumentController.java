@@ -20,8 +20,16 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
+import com.studymate.dto.IndexResponse;
+import com.studymate.dto.SearchQueryRequest;
+import com.studymate.dto.SearchResponse;
+import com.studymate.dto.SearchResultItem;
+import com.studymate.service.VectorStoreService;
+import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.RequestBody;
+
 /**
- * REST Controller providing endpoints for document upload, ingestion, and chunk inspection.
+ * REST Controller providing endpoints for document upload, ingestion, chunk inspection, and vector search.
  *
  * Concepts for Beginners:
  * - Thin Controller Pattern: This class contains NO parsing, extraction, or chunking algorithms.
@@ -30,6 +38,8 @@ import java.util.List;
  * - @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE): Handles multipart PDF uploads.
  * - @GetMapping("/chunks"): Allows inspecting the chunks produced by ChunkingService for the
  *   currently active document stored in InMemoryDocumentStore.
+ * - @PostMapping("/index"): Converts chunks into Spring AI Documents and indexes them into VectorStore.
+ * - @PostMapping("/search"): Performs top-k semantic similarity search against indexed vector chunks.
  */
 @RestController
 @RequestMapping("/api/documents")
@@ -38,14 +48,17 @@ public class DocumentController {
     private final PdfService pdfService;
     private final InMemoryDocumentStore documentStore;
     private final ChunkingService chunkingService;
+    private final VectorStoreService vectorStoreService;
 
     public DocumentController(
             PdfService pdfService,
             InMemoryDocumentStore documentStore,
-            ChunkingService chunkingService) {
+            ChunkingService chunkingService,
+            VectorStoreService vectorStoreService) {
         this.pdfService = pdfService;
         this.documentStore = documentStore;
         this.chunkingService = chunkingService;
+        this.vectorStoreService = vectorStoreService;
     }
 
     /**
@@ -114,6 +127,60 @@ public class DocumentController {
                 chunks,
                 String.format("Generated %d chunks from %d pages with chunk-size=%d and overlap=%d.",
                         chunks.size(), document.totalPages(), chunkingService.getChunkSize(), chunkingService.getOverlap())
+        );
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Indexes the currently active uploaded document into the VectorStore.
+     * POST /api/documents/index
+     *
+     * @return IndexResponse confirming number of chunks indexed and document ID
+     * @throws NoDocumentUploadedException if no document has been uploaded yet (HTTP 404)
+     */
+    @PostMapping("/index")
+    public ResponseEntity<IndexResponse> indexDocument() {
+        ExtractedDocument document = documentStore.get()
+                .orElseThrow(() -> new NoDocumentUploadedException(
+                        "No document has been uploaded yet. Please upload a PDF first via POST /api/documents/upload"));
+
+        int indexedChunks = vectorStoreService.indexDocument(document);
+
+        IndexResponse response = new IndexResponse(
+                document.documentId(),
+                document.filename(),
+                indexedChunks,
+                String.format("Successfully indexed %d chunks for document '%s'. Ready for vector search.",
+                        indexedChunks, document.filename())
+        );
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Executes similarity search against indexed vector chunks.
+     * POST /api/documents/search
+     *
+     * @param request SearchQueryRequest containing query, optional topK and minThreshold
+     * @return SearchResponse with ranked matching chunks and citation metadata
+     * @throws NoDocumentIndexedException if no document has been indexed yet (HTTP 404)
+     */
+    @PostMapping("/search")
+    public ResponseEntity<SearchResponse> searchDocuments(
+            @Valid @RequestBody SearchQueryRequest request) {
+
+        List<SearchResultItem> results = vectorStoreService.similaritySearch(
+                request.query(),
+                request.topK(),
+                request.minThreshold()
+        );
+
+        SearchResponse response = new SearchResponse(
+                request.query(),
+                vectorStoreService.getIndexedDocumentId(),
+                results.size(),
+                results
         );
 
         return ResponseEntity.ok(response);

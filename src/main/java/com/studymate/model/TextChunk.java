@@ -6,10 +6,11 @@ package com.studymate.model;
  * Concepts for Beginners:
  * - A 'chunk' is the fundamental unit of retrieval in RAG. LLMs have context limits
  *   and work best when supplied with focused, coherent passages rather than entire books.
- * - By retaining 'pageNumber' and 'sourceFilename', every chunk can be precisely cited
- *   when the AI answers questions in future stages.
+ * - By retaining 'documentId', 'pageNumber', and 'sourceFilename', every chunk can be precisely cited
+ *   and linked to its specific upload session when the AI answers questions in future stages.
  *
- * @param chunkId        Unique identifier for this chunk (e.g. "chapter1.pdf-p1-c0")
+ * @param chunkId        Globally unique identifier for this chunk (e.g. "doc-a1b2c3d4-p1-c0")
+ * @param documentId     Identifier of the parent document upload session
  * @param text           The segmented text content
  * @param pageNumber     1-based page number where this chunk originated
  * @param chunkIndex     Sequential index of this chunk across the entire document (0, 1, 2...)
@@ -18,6 +19,7 @@ package com.studymate.model;
  */
 public record TextChunk(
         String chunkId,
+        String documentId,
         String text,
         int pageNumber,
         int chunkIndex,
@@ -28,6 +30,7 @@ public record TextChunk(
         if (chunkId == null || chunkId.isBlank()) {
             throw new IllegalArgumentException("chunkId must not be null or blank.");
         }
+        documentId = (documentId == null || documentId.isBlank()) ? "doc-default" : documentId;
         text = (text == null) ? "" : text;
         characterCount = text.length();
         if (pageNumber < 1) {
@@ -40,9 +43,16 @@ public record TextChunk(
     }
 
     /**
-     * Convenience constructor that automatically computes characterCount.
+     * Convenience constructor with documentId that automatically computes characterCount.
+     */
+    public TextChunk(String chunkId, String documentId, String text, int pageNumber, int chunkIndex, String sourceFilename) {
+        this(chunkId, documentId, text, pageNumber, chunkIndex, sourceFilename, (text == null) ? 0 : text.length());
+    }
+
+    /**
+     * Backward-compatible constructor for Stage 3 callers that defaults documentId to "doc-default".
      */
     public TextChunk(String chunkId, String text, int pageNumber, int chunkIndex, String sourceFilename) {
-        this(chunkId, text, pageNumber, chunkIndex, sourceFilename, (text == null) ? 0 : text.length());
+        this(chunkId, "doc-default", text, pageNumber, chunkIndex, sourceFilename, (text == null) ? 0 : text.length());
     }
 }

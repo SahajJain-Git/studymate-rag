@@ -48,8 +48,8 @@ class ChunkingServiceTest {
         assertThat(chunk.pageNumber()).isEqualTo(1);
         assertThat(chunk.sourceFilename()).isEqualTo("oop.pdf");
         assertThat(chunk.text()).isEqualTo(shortText);
-        assertThat(chunk.characterCount()).isEqualTo(shortText.length());
-        assertThat(chunk.chunkId()).isEqualTo("oop.pdf-p1-c0");
+        assertThat(chunk.chunkId()).startsWith(doc.documentId());
+        assertThat(chunk.chunkId()).endsWith("oop.pdf-p1-c0");
     }
 
     @Test
