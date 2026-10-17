@@ -76,7 +76,7 @@ StudyMate executes two primary data workflows:
 | **Stage 4** | **Embeddings & Vector Storage** | **Completed** | Spring AI SimpleVectorStore, deterministic local embedding baseline, top-k similarity search, stale chunk eviction. |
 | **Stage 5** | **RAG Question Answering** | **Completed** | Prompt templating, RagService, QueryController, grounded answer synthesis, authoritative Java citations, insufficient-context guardrails. |
 | **Stage 6** | **Simple Frontend** | **Completed** | Clean AI dashboard in vanilla HTML5/CSS3/JS (studymate-frontend), drag-and-drop PDF upload, indexing action, citation drawer, CORS enablement. |
-| **Stage 7** | **Testing & Integration** | *Next* | End-to-end integration tests, error handling, mock vs live API testing. |
+| **Stage 7** | **Testing & Integration** | **Completed** | Comprehensive 86-test regression suite, evidence sufficiency heuristic, encrypted PDF detection, lifecycle replacement verification, automated E2E script. |
 | **Stage 8** | **Interview Preparation Guide** | *Upcoming* | Deep architectural Q&A, trade-off analysis, resume-ready bullet points. |
 
 ---
@@ -88,13 +88,27 @@ StudyMate executes two primary data workflows:
 - Maven (or bundled `./mvnw` / `mvnw.cmd`)
 - Python 3 (or any static HTTP server for serving the frontend)
 
-### Running the Full Test Suite
+### Running the Full Automated Backend Test Suite (86 Tests)
 ```bash
+# Windows
+.\mvnw.cmd test
+
+# Linux / macOS
 ./mvnw clean test
+```
+
+### Running the End-to-End Pipeline Integration Test (HTTP Lifecycle)
+When the Spring Boot backend is running on `http://localhost:8080`:
+```bash
+python test_e2e_pipeline.py
 ```
 
 ### 1. Starting the Spring Boot Backend (Port 8080)
 ```bash
+# Windows
+.\mvnw.cmd spring-boot:run
+
+# Linux / macOS
 ./mvnw spring-boot:run
 ```
 
@@ -104,6 +118,7 @@ In a separate terminal window:
 python -m http.server 3000 --directory studymate-frontend
 ```
 Then open your browser and navigate to: **`http://localhost:3000`**
+
 
 ---
 

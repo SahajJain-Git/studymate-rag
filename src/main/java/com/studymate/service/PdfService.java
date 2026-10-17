@@ -106,6 +106,9 @@ public class PdfService {
 
             return new ExtractedDocument(documentId, originalFilename, totalPages, totalExtractedChars, extractedPages);
 
+        } catch (org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException e) {
+            log.warn("Uploaded PDF '{}' is password-protected/encrypted: {}", originalFilename, e.getMessage());
+            throw new PdfProcessingException("Password-protected or encrypted PDF documents are not supported.", e);
         } catch (EmptyPdfException | InvalidFileException | PdfProcessingException e) {
             throw e;
         } catch (Exception e) {
@@ -113,6 +116,7 @@ public class PdfService {
             throw new PdfProcessingException("Failed to parse PDF document: " + e.getMessage(), e);
         }
     }
+
 
     /**
      * Validates existence, non-emptiness, and filename extension of the uploaded file.

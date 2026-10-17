@@ -305,18 +305,65 @@ This guide is designed to help you confidently explain the architecture, design 
 
 ---
 
-### 27. Why did you expose Upload and Indexing as two distinct actions in the UI?
-**Interviewer:** *"Why not automatically index the PDF immediately upon upload?"*
+## 💡 Stage 7 Testing, RAG Reliability & Evaluation Questions & Answers
+
+### 28. Why doesn't retrieving $k$ chunks guarantee that a RAG system has sufficient evidence?
+**Interviewer:** *"If top-k similarity search returns chunks from the vector store, doesn't that mean we have the answer?"*
 
 **Answer:**
-> *"Separating Upload and Indexing reflects the core architectural stages of RAG:*
-> 1. **Inspection & Verification (Step 1):** *Uploading parses the PDF and returns page counts, character counts, and page previews. The user can review whether the document was parsed cleanly before committing to chunking and vectorization.*
-> 2. **Resource Efficiency (Step 2):** *Vector embedding and indexing is computationally intensive. In production systems with paid neural embeddings, you want deliberate user confirmation or validation before spending embedding tokens or vector store writes.*
-> 3. **Clear State Feedback:** *The UI displays an explicit status pill (`Not Indexed` -> `Indexing...` -> `Indexed & Searchable`), making the state machine observable and easy to debug."*
+> *"No, and assuming so is one of the most common pitfalls in beginner RAG systems:*
+> 1. **Similarity $\neq$ Relevance:** *Vector stores compute mathematical distance (e.g., cosine similarity). Even for completely off-topic questions (e.g. asking about chocolate cake against an Operating Systems textbook), top-k search will still return the closest $k$ chunks in the index, even if their similarity score is marginal or zero.*
+> 2. **Evidence Sufficiency:** *In StudyMate, we separate **retrieval presence** from **evidence sufficiency**. First, empty retrieval immediately short-circuits. Second, the model evaluates whether the retrieved text actually contains the domain facts required to substantiate the answer. If not, it adheres to Rule 2 of the prompt: 'The provided document does not contain sufficient information to answer this question.'*
+> 3. **The `hasSufficientContext` Flag:** *Our `RagService` inspects the synthesized answer and sets `hasSufficientContext = false` when evidence is inadequate, allowing the frontend to present an explicit warning banner to the user rather than claiming factual certainty."*
+
+---
+
+### 29. Why build citations in Java instead of asking the LLM to generate them in JSON?
+**Interviewer:** *"Why not just prompt the LLM to output a JSON object with `pageNumber` and `filename`?"*
+
+**Answer:**
+> *"Never trust an LLM to generate authoritative citation metadata:*
+> 1. **Hallucination Risk:** *LLMs frequently hallucinate page numbers, invent non-existent file names, or fabricate chunk IDs when generating output strings.*
+> 2. **Authoritative Grounding:** *In StudyMate, citations (`CitationItem`) are constructed deterministically in Java code directly from the `SearchResultItem` records returned by `VectorStoreService`. The page number, source filename, chunk ID, and similarity score are guaranteed by our ingestion metadata pipeline, completely independent of whatever text the model generates.*
+> 3. **Distinction:** *We clearly distinguish between **metadata integrity** (guaranteed in Java) and **answer-text attribution** (the model's generated bracketed citations, which remain fallible and subject to evaluation)."*
+
+---
+
+### 30. How do you prevent "stale vectors" when a user uploads a new document?
+**Interviewer:** *"In a single-document RAG architecture, what happens to the vector store when a user uploads a second PDF?"*
+
+**Answer:**
+> *"Without deliberate lifecycle handling, previous document vectors remain in the vector index, leading to 'ghost vectors' where queries return passages from a document the user already replaced:*
+> 1. **Upload Invalidation:** *In `DocumentController.uploadDocument()`, saving the new document to `InMemoryDocumentStore` immediately invokes `vectorStoreService.clearStore()`. This purges old vectors so that any query attempted before re-indexing returns HTTP 404 (`NoDocumentIndexedException`) instead of returning stale answers from the previous document.*
+> 2. **Atomic Eviction during Re-indexing:** *When `vectorStoreService.indexDocument()` is called, new chunks are added first, and then previous chunk IDs are deleted in the same synchronized lock.*
+> 3. **Tested:** *We have regression tests specifically verifying that uploading Document A, indexing A, uploading B, searching before indexing B returns 404, and then indexing B completely evicts A's vectors."*
+
+---
+
+### 31. How do you test encrypted and corrupted PDFs deterministically without static files?
+**Interviewer:** *"Did you commit sample `.pdf` files to Git for testing PDF extraction?"*
+
+**Answer:**
+> *"No, we use dynamic in-memory generation via [`PdfTestUtils.java`](file:///d:/Projects/Project2/src/test/java/com/studymate/util/PdfTestUtils.java):*
+> - **Zero File Coupling:** *Tests generate `byte[]` streams in memory using Apache PDFBox 3.0 APIs, avoiding disk I/O, file path issues across OSs, and stale test resources.*
+> - **Encrypted PDFs:** *Using `PDDocument.protect(new StandardProtectionPolicy(...))`, we dynamically generate 128-bit encrypted PDFs in-memory to test that `PdfService` intercepts `InvalidPasswordException` and returns a clean, user-friendly HTTP 422 Unprocessable Entity.*
+> - **Corrupted Streams:** *We concatenate `%PDF-` magic bytes with arbitrary binary garbage to test parser recovery and error handling."*
+
+---
+
+### 32. How do you achieve atomicity and consistency if vector indexing fails?
+**Interviewer:** *"What happens if the embedding model or vector store crashes halfway through indexing a new document?"*
+
+**Answer:**
+> *"In [`VectorStoreService.java`](file:///d:/Projects/Project2/src/main/java/com/studymate/service/VectorStoreService.java), we use a synchronized lock and atomic references (`AtomicReference<String> indexedDocumentId` and a thread-safe set `indexedChunkIds`):*
+> - *The new document's chunks are submitted to `vectorStore.add(springAiDocs)` **before** the old chunk IDs are deleted and before the active document ID is updated.*
+> - *If `vectorStore.add()` throws an exception (e.g. embedding failure or out-of-memory), the method aborts immediately. The previous document ID and previous chunk set remain untouched.*
+> - *We tested this using a custom `ConditionalFailingVectorStore` stub to verify that if re-indexing fails, the previous document remains fully indexed and searchable without partial corruption."*
 
 ---
 
 *(This document will expand after each stage to cover end-to-end evaluation, testing, and deployment).*
+
 
 
 

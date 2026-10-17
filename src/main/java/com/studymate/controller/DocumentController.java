@@ -78,7 +78,10 @@ public class DocumentController {
         // 2. Persist the complete extracted document in InMemoryDocumentStore across HTTP requests
         documentStore.save(extracted);
 
-        // 3. Map domain entity to API response DTO (with friendly page previews)
+        // 3. Invalidate/clear vector store so previous document vectors are not queried before new document is indexed
+        vectorStoreService.clearStore();
+
+        // 4. Map domain entity to API response DTO (with friendly page previews)
         List<PageSummary> pageSummaries = extracted.pages().stream()
                 .map(page -> {
                     String fullText = page.text();

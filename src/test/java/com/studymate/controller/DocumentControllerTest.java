@@ -1,5 +1,6 @@
 package com.studymate.controller;
 
+import com.studymate.dto.ErrorResponse;
 import com.studymate.service.InMemoryDocumentStore;
 import com.studymate.service.VectorStoreService;
 import com.studymate.util.PdfTestUtils;
@@ -9,11 +10,17 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.greaterThan;
@@ -46,6 +53,9 @@ class DocumentControllerTest {
 
     @Autowired
     private VectorStoreService vectorStoreService;
+
+    @Autowired
+    private GlobalExceptionHandler globalExceptionHandler;
 
     @BeforeEach
     void setUp() {
@@ -460,4 +470,117 @@ class DocumentControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.results[0].text").value(containsString("Draft version 2")));
     }
+
+    @Test
+    @DisplayName("POST /api/documents/upload with password-protected PDF returns 422 Unprocessable Entity")
+    void upload_encryptedPdf_returns422() throws Exception {
+        byte[] encryptedPdf = PdfTestUtils.createEncryptedPdf("Protected notes", "secret123");
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "protected.pdf",
+                "application/pdf",
+                encryptedPdf
+        );
+
+        mockMvc.perform(multipart("/api/documents/upload").file(file))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.status").value(422))
+                .andExpect(jsonPath("$.error").value("Unprocessable Entity"))
+                .andExpect(jsonPath("$.message").value(containsString("Password-protected or encrypted PDF documents are not supported.")));
+    }
+
+    @Test
+    @DisplayName("POST /api/documents/upload with whitespace-only filename returns 400 Bad Request")
+    void upload_whitespaceFilename_returns400() throws Exception {
+        byte[] pdfBytes = PdfTestUtils.createSinglePagePdf("Test content");
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "   ",
+                "application/pdf",
+                pdfBytes
+        );
+
+        mockMvc.perform(multipart("/api/documents/upload").file(file))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value(containsString("Uploaded file must have a valid filename.")));
+    }
+
+    @Test
+    @DisplayName("POST /api/documents/upload with path traversal filename sanitizes filename to base name")
+    void upload_pathTraversalFilename_sanitizesFilename() throws Exception {
+        byte[] pdfBytes = PdfTestUtils.createSinglePagePdf("Secure syllabus content");
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "../../secret/course-syllabus.pdf",
+                "application/pdf",
+                pdfBytes
+        );
+
+        mockMvc.perform(multipart("/api/documents/upload").file(file))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.filename").value("course-syllabus.pdf"));
+    }
+
+    @Test
+    @DisplayName("Sequential replacement: upload/index A, upload B, search before indexing B returns 404, then index B and verify A is evicted")
+    void sequentialReplacement_lifecycleTest() throws Exception {
+        // 1. Upload & Index Doc A (Algorithms)
+        byte[] docA = PdfTestUtils.createSinglePagePdf("Dijkstra shortest path algorithm computes shortest paths from a single source.");
+        mockMvc.perform(multipart("/api/documents/upload")
+                        .file(new MockMultipartFile("file", "algorithms.pdf", "application/pdf", docA)))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/documents/index")).andExpect(status().isOk());
+
+        // Verify Doc A is searchable
+        mockMvc.perform(post("/api/documents/search")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"query\": \"shortest path\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.results[0].sourceFilename").value("algorithms.pdf"));
+
+        // 2. Upload Doc B (Compilers) - NOT yet indexed
+        byte[] docB = PdfTestUtils.createSinglePagePdf("Lexical analysis converts character streams into tokens using finite automata.");
+        mockMvc.perform(multipart("/api/documents/upload")
+                        .file(new MockMultipartFile("file", "compilers.pdf", "application/pdf", docB)))
+                .andExpect(status().isOk());
+
+        // 3. Search before indexing Doc B: Must return 404, ensuring no stale vectors from Doc A are queried!
+        mockMvc.perform(post("/api/documents/search")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"query\": \"shortest path\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.message").value(containsString("No document has been indexed yet")));
+
+        // 4. Index Doc B
+        mockMvc.perform(post("/api/documents/index")).andExpect(status().isOk());
+
+        // 5. Search after indexing Doc B: Only Doc B exists, Doc A is completely gone!
+        mockMvc.perform(post("/api/documents/search")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"query\": \"lexical analysis tokens\", \"topK\": 5}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.results[0].sourceFilename").value("compilers.pdf"))
+                .andExpect(jsonPath("$.results[0].text").value(containsString("Lexical analysis")));
+    }
+
+    @Test
+    @DisplayName("MaxUploadSizeExceededException is cleanly mapped to 413 Payload Too Large by GlobalExceptionHandler")
+    void handleMaxUploadSize_returns413PayloadTooLarge() {
+        MaxUploadSizeExceededException ex = new MaxUploadSizeExceededException(20 * 1024 * 1024);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/documents/upload");
+
+        ResponseEntity<ErrorResponse> response = globalExceptionHandler.handleMaxUploadSize(ex, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().status()).isEqualTo(413);
+        assertThat(response.getBody().error()).isEqualTo("Payload Too Large");
+        assertThat(response.getBody().message()).contains("maximum allowed upload limit (20MB)");
+        assertThat(response.getBody().path()).isEqualTo("/api/documents/upload");
+        assertThat(response.getBody().timestamp()).isNotNull();
+    }
 }
+
+

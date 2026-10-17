@@ -94,9 +94,44 @@ public final class PdfTestUtils {
     }
 
     /**
+     * Creates a password-protected/encrypted single-page PDF document.
+     */
+    public static byte[] createEncryptedPdf(String text, String password) {
+        try (PDDocument document = new PDDocument()) {
+            PDType1Font font = new PDType1Font(Standard14Fonts.FontName.HELVETICA);
+            PDPage page = new PDPage();
+            document.addPage(page);
+
+            if (text != null && !text.isEmpty()) {
+                try (PDPageContentStream contentStream = new PDPageContentStream(document, page)) {
+                    contentStream.beginText();
+                    contentStream.setFont(font, 12);
+                    contentStream.newLineAtOffset(50, 700);
+                    contentStream.showText(text);
+                    contentStream.endText();
+                }
+            }
+
+            org.apache.pdfbox.pdmodel.encryption.AccessPermission ap =
+                    new org.apache.pdfbox.pdmodel.encryption.AccessPermission();
+            org.apache.pdfbox.pdmodel.encryption.StandardProtectionPolicy spp =
+                    new org.apache.pdfbox.pdmodel.encryption.StandardProtectionPolicy(password, password, ap);
+            spp.setEncryptionKeyLength(128);
+            document.protect(spp);
+
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            document.save(outputStream);
+            return outputStream.toByteArray();
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to generate encrypted test PDF: " + e.getMessage(), e);
+        }
+    }
+
+    /**
      * Creates a non-PDF byte array (e.g. text file or plain binary bytes).
      */
     public static byte[] createNonPdfFile() {
         return "This is just plain text, not a valid PDF file!".getBytes(StandardCharsets.UTF_8);
     }
 }
+

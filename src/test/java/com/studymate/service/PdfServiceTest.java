@@ -170,4 +170,59 @@ class PdfServiceTest {
                 .isInstanceOf(EmptyPdfException.class)
                 .hasMessageContaining("does not contain extractable text");
     }
+
+    @Test
+    @DisplayName("Throws PdfProcessingException when PDF is password-protected/encrypted")
+    void extractText_encryptedPdf_throwsPdfProcessingException() {
+        byte[] encryptedBytes = PdfTestUtils.createEncryptedPdf("Secret exam questions", "password123");
+
+        MockMultipartFile encryptedFile = new MockMultipartFile(
+                "file",
+                "exam-locked.pdf",
+                "application/pdf",
+                encryptedBytes
+        );
+
+        assertThatThrownBy(() -> pdfService.extractText(encryptedFile))
+                .isInstanceOf(PdfProcessingException.class)
+                .hasMessageContaining("Password-protected or encrypted PDF documents are not supported.");
+    }
+
+    @Test
+    @DisplayName("Throws InvalidFileException when filename is whitespace-only")
+    void extractText_whitespaceFilename_throwsInvalidFileException() {
+        byte[] pdfBytes = PdfTestUtils.createSinglePagePdf("Valid content");
+
+        MockMultipartFile whitespaceFile = new MockMultipartFile(
+                "file",
+                "    ",
+                "application/pdf",
+                pdfBytes
+        );
+
+        assertThatThrownBy(() -> pdfService.extractText(whitespaceFile))
+                .isInstanceOf(InvalidFileException.class)
+                .hasMessageContaining("must have a valid filename");
+    }
+
+    @Test
+    @DisplayName("Sanitizes path traversal filename (e.g. ../../malicious.pdf) to basename only")
+    void extractText_pathTraversalFilename_sanitizesToBaseName() {
+        byte[] pdfBytes = PdfTestUtils.createSinglePagePdf("Valid syllabus content");
+
+        MockMultipartFile traversalFile = new MockMultipartFile(
+                "file",
+                "../../secret/syllabus.pdf",
+                "application/pdf",
+                pdfBytes
+        );
+
+        ExtractedDocument document = pdfService.extractText(traversalFile);
+
+        assertThat(document.filename()).isEqualTo("syllabus.pdf");
+        assertThat(document.filename()).doesNotContain("..");
+        assertThat(document.filename()).doesNotContain("/");
+        assertThat(document.filename()).doesNotContain("\\");
+    }
 }
+

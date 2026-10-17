@@ -186,6 +186,81 @@ class VectorStoreServiceTest {
     }
 
     @Test
+    @DisplayName("Should preserve previous document and vectors if re-indexing a new document fails")
+    void shouldPreserveExistingDocumentStateWhenReindexingFails() {
+        class ConditionalFailingVectorStore implements VectorStore {
+            private final VectorStore delegate;
+            private boolean shouldFail = false;
+
+            ConditionalFailingVectorStore(VectorStore delegate) {
+                this.delegate = delegate;
+            }
+
+            @Override
+            public void add(List<org.springframework.ai.document.Document> documents) {
+                if (shouldFail) {
+                    throw new RuntimeException("Simulated VectorStore failure during re-indexing");
+                }
+                delegate.add(documents);
+            }
+
+            @Override
+            public void delete(List<String> idList) {
+                delegate.delete(idList);
+            }
+
+            @Override
+            public void delete(org.springframework.ai.vectorstore.filter.Filter.Expression filterExpression) {
+                delegate.delete(filterExpression);
+            }
+
+            @Override
+            public List<org.springframework.ai.document.Document> similaritySearch(org.springframework.ai.vectorstore.SearchRequest request) {
+                return delegate.similaritySearch(request);
+            }
+        }
+
+        ConditionalFailingVectorStore conditionalStore = new ConditionalFailingVectorStore(vectorStore);
+        VectorStoreService service = new VectorStoreService(conditionalStore, chunkingService);
+
+        // 1. Successfully index Doc 1
+        ExtractedDocument doc1 = new ExtractedDocument(
+                "doc-initial",
+                "initial.pdf",
+                1,
+                120,
+                List.of(new ExtractedPage(1, "Initial active syllabus content for semester 1.", 46))
+        );
+        service.indexDocument(doc1);
+        assertEquals("doc-initial", service.getIndexedDocumentId());
+        int initialCount = service.getIndexedChunkCount();
+        assertTrue(initialCount > 0);
+
+        // 2. Enable failure on store and try to index Doc 2
+        conditionalStore.shouldFail = true;
+        ExtractedDocument doc2 = new ExtractedDocument(
+                "doc-replacement",
+                "replacement.pdf",
+                1,
+                150,
+                List.of(new ExtractedPage(1, "New syllabus content for semester 2.", 36))
+        );
+
+        assertThrows(RuntimeException.class, () -> service.indexDocument(doc2));
+
+        // 3. Verify state atomicity: Doc 1 state must be completely preserved!
+        assertTrue(service.hasIndexedDocument());
+        assertEquals("doc-initial", service.getIndexedDocumentId(), "Document ID should remain doc-initial");
+        assertEquals(initialCount, service.getIndexedChunkCount(), "Chunk count should remain unchanged");
+
+        // Verify Doc 1 is still retrievable
+        List<SearchResultItem> results = service.similaritySearch("syllabus semester 1", 3, 0.0);
+        assertFalse(results.isEmpty());
+        assertEquals("doc-initial", results.get(0).documentId());
+    }
+
+    @Test
+
     @DisplayName("Should clear store correctly and reset tracking state")
     void shouldClearStoreCorrectly() {
         ExtractedDocument doc = new ExtractedDocument(
